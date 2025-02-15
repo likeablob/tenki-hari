@@ -1,0 +1,43 @@
+alias: Publish hourly weather forecast to MQTT
+description: ""
+triggers:
+  - minutes: "00"
+    trigger: time_pattern
+conditions: []
+actions:
+  - metadata: {}
+    data:
+      type: hourly
+    target:
+      entity_id: weather.openweathermap
+    response_variable: hourly
+    action: weather.get_forecasts
+  - metadata: {}
+    data:
+      qos: 0
+      retain: true
+      topic: home/homeassistant/weather/forecast/3h/condition
+      payload: "{{ hourly['weather.openweathermap'].forecast[3].condition }}"
+    action: mqtt.publish
+  - metadata: {}
+    data:
+      qos: 0
+      retain: true
+      topic: home/homeassistant/weather/forecast/6h/condition
+      payload: "{{ hourly['weather.openweathermap'].forecast[6].condition }}"
+    action: mqtt.publish
+  - metadata: {}
+    data:
+      qos: 0
+      retain: true
+      topic: home/homeassistant/weather/forecast/9h/condition
+      payload: "{{ hourly['weather.openweathermap'].forecast[9].condition }}"
+    action: mqtt.publish
+  - metadata: {}
+    data:
+      qos: 0
+      retain: true
+      topic: home/homeassistant/weather/forecast/12h/condition
+      payload: "{{ hourly['weather.openweathermap'].forecast[12].condition }}"
+    action: mqtt.publish
+mode: single

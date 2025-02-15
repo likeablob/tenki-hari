@@ -1,0 +1,4 @@
+{
+  "scad-lsp.fmtStyle": "chromium",
+  "scad-lsp.launchPath": "/usr/bin/openscad-nightly"
+}

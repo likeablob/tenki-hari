@@ -1,0 +1,9 @@
+[submodule "case/scad-utils"]
+	path = case/scad-utils
+	url = https://github.com/likeablob/scad-utils
+[submodule "scad-utils"]
+	path = scad-utils
+	url = https://github.com/likeablob/scad-utils
+[submodule "MCAD"]
+	path = MCAD
+	url = https://github.com/openscad/MCAD

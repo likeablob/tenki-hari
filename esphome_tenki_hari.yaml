@@ -1,0 +1,233 @@
+esphome:
+  name: tenki_hari_1
+  friendly_name: tenki_hari_1
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+ota:
+  - platform: esphome
+    password: "<Replace This>"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  on_connect:
+    - logger.log:
+        format: "Wake up cause is %d"
+        args: ["id(wakeup_cause).state"]
+
+captive_portal:
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Etc/UTC
+    servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+      - 2.pool.ntp.org
+
+deep_sleep:
+  id: deep_sleep_1
+  run_duration:
+    default: 20s
+    gpio_wakeup_reason: 5min
+  sleep_duration: 30min
+  wakeup_pin:
+    number: GPIO4
+
+globals:
+  - id: received_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+script:
+  - id: set_servo_angle
+    mode: queued
+    parameters:
+      servo_ind: int
+      weather_condition: string
+    then:
+      # Possible conditions: https://www.home-assistant.io/integrations/weather/
+      - lambda: |-
+          float angle =  0;
+
+          if(weather_condition.find("rainy") != std::string::npos
+              || weather_condition == "hail"
+              || weather_condition == "pouring"
+              || weather_condition.find("snowy") != std::string::npos){
+            angle = 150;
+          } else if (weather_condition.find("cloudy") != std::string::npos){
+            angle = 90;
+          } else {
+            angle = 30;
+          }
+
+          float servo_angle = (90.0f - angle)/90.0f; // 1.0 to -1.0
+
+          switch (servo_ind){
+            case 1:
+              id(servo_1).write(servo_angle);
+              break;
+            case 2:
+              id(servo_2).write(servo_angle);
+              break;
+            case 3:
+              id(servo_3).write(servo_angle);
+              break;
+            case 4:
+              id(servo_4).write(servo_angle);
+              break;
+          }
+
+          id(received_count)++;
+      - if:
+          condition:
+            lambda: |-
+              return id(received_count) >= 4;
+          then:
+            - logger.log: "The data has been collected. It's time to sleep!"
+            - output.turn_on: bus_power_switch
+            - delay: 1s # Wait for the servo to settle.
+            - wait_until:
+                lambda: |-
+                  ESP_LOGD("main", "Waiting for time sync: %d", id(sntp_time).now().is_valid());
+                  return id(sntp_time).now().is_valid();
+            - while:
+                condition:
+                  lambda: |-
+                    ESP_LOGD("main", "Waking up while the deep sleep pin is high.");
+                    return digitalRead(4) == 1;
+                then:
+                  - delay: 500ms
+            - sensor.template.publish:
+                id: uptime_millis
+                state: !lambda "return millis();"
+            # Note: deep_sleep.until is not templatable: https://github.com/esphome/feature-requests/issues/2532
+            - deep_sleep.enter:
+                id: deep_sleep_1
+                sleep_duration: !lambda |-
+                  auto now = id(sntp_time).now().timestamp;
+                  auto next = (now / 3600 + 1) * 3600 + 60 * 5; // Every hour on the 5th minute
+                  auto diff_sec = (next - now);
+                  ESP_LOGD("main", "Sleep for %ld sec", diff_sec);
+
+                  return diff_sec * 1000; // Return in ms
+          else:
+            - lambda: |-
+                ESP_LOGD("main", "Data collection is in progress.");
+
+output:
+  - platform: ledc
+    id: pwm_out_1
+    pin: GPIO5
+    frequency: 50Hz
+  - platform: ledc
+    id: pwm_out_2
+    pin: GPIO6
+    frequency: 50Hz
+  - platform: ledc
+    id: pwm_out_3
+    pin: GPIO7
+    frequency: 50Hz
+  - platform: ledc
+    id: pwm_out_4
+    pin: GPIO10
+    frequency: 50Hz
+  - platform: gpio
+    pin: GPIO3
+    id: bus_power_switch
+
+servo:
+  - id: servo_1
+    output: pwm_out_1
+  - id: servo_2
+    output: pwm_out_2
+  - id: servo_3
+    output: pwm_out_3
+  - id: servo_4
+    output: pwm_out_4
+
+sensor:
+  - platform: template
+    id: wakeup_cause
+    name: "Wakeup Cause"
+    accuracy_decimals: 0
+    lambda: return esp_sleep_get_wakeup_cause();
+    internal: False
+  - platform: template
+    id: uptime_millis
+    name: "Uptime (millis)"
+    accuracy_decimals: 0
+  - platform: template
+    id: deep_sleep_gpio
+    internal: true
+    accuracy_decimals: 0
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: true
+  discovery_prefix: homeassistant
+  # For debugging
+  # on_connect:
+  #   - logger.log:
+  #       format: "MQTT connected!"
+  on_message:
+    - topic: home/homeassistant/weather/forecast/3h/condition
+      qos: 0
+      then:
+        - lambda: |-
+            ESP_LOGD("main", "Received value is %s", x.c_str());
+            id(set_servo_angle).execute(1, x);
+    - topic: home/homeassistant/weather/forecast/6h/condition
+      qos: 0
+      then:
+        - lambda: |-
+            ESP_LOGD("main", "Received value is %s", x.c_str());
+            id(set_servo_angle).execute(2, x);
+    - topic: home/homeassistant/weather/forecast/9h/condition
+      qos: 0
+      then:
+        - lambda: |-
+            ESP_LOGD("main", "Received value is %s", x.c_str());
+            id(set_servo_angle).execute(3, x);
+    - topic: home/homeassistant/weather/forecast/12h/condition
+      qos: 0
+      then:
+        - lambda: |-
+            ESP_LOGD("main", "Received value is %s", x.c_str());
+            id(set_servo_angle).execute(4, x);
+
+# For servo debugging
+number:
+  - platform: template
+    name: Servo Control
+    min_value: -100
+    initial_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    set_action:
+      then:
+        - servo.write:
+            id: servo_1
+            level: !lambda "return x / 100.0;"
+        - servo.write:
+            id: servo_2
+            level: !lambda "return x / 100.0;"
+        - servo.write:
+            id: servo_3
+            level: !lambda "return x / 100.0;"
+        - servo.write:
+            id: servo_4
+            level: !lambda "return x / 100.0;"

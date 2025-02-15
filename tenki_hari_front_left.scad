@@ -1,0 +1,5 @@
+use <_tenki_hari_base.scad>
+
+$fn = 80;
+
+color("#EEE") th_parts_front(prev_side_joint = false);
